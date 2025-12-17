@@ -1,0 +1,11 @@
+node_modules
+
+# 模型压缩文件
+*.tar.bz2
+# WebAssembly 二进制文件
+*.wasm
+# 数据文件，包含模型：encoder.onnx, decoder.onnx, joiner.onnx, tokens.txt
+*.data
+
+*.7z
+.DS_Store
