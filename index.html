@@ -76,7 +76,11 @@
     </ul>
   </div>
 
-  <script src="sherpa-onnx-asr.js"></script>
+  <!-- 官方示例代码 -->
+  <!-- <script src="sherpa-onnx-asr.js"></script>
   <script src="app-asr.js"></script>
-  <script src="sherpa-onnx-wasm-main-asr.js"></script>
+  <script src="sherpa-onnx-wasm-main-asr.js"></script> -->
+
+  <!-- 新的模块化入口，只保留 wasm loader 由 runtime 动态加载 -->
+  <script type="module" src="./src/app-modern/index.ts"></script>
 </body>

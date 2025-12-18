@@ -9,3 +9,4 @@ node_modules
 
 *.7z
 .DS_Store
+.cursor

@@ -180,6 +180,205 @@ index.html
    - 音频数据实时发送到识别器
    - 识别结果实时显示在文本区域
 
+---
+
+## 现代化模块化架构
+
+在保留官方示例文件的前提下，项目新增了一套模块化的 TypeScript 封装，方便逐步迁移到「像正常 npm 包一样使用」的方式。
+
+### 目录结构
+
+```
+src/
+├── sherpa-wasm-loader/          # wasm loader 模块
+│   ├── loader.ts               # 核心加载逻辑：动态加载官方 wasm、配置 Module、IndexedDB 缓存
+│   ├── types.ts                # 类型定义：WasmLoaderOptions、WasmLoaderInitResult
+│   └── index.ts                # 统一导出
+│
+├── sherpa-onnx-asr-ts/         # TypeScript 类型和 API 封装
+│   ├── types.ts                # 所有类型定义（SherpaOnnxModule、OnlineRecognizerConfig 等）
+│   ├── config.ts               # 配置结构转换逻辑
+│   ├── online.ts               # OnlineRecognizer、OnlineStream 类
+│   ├── offline.ts              # OfflineRecognizer、OfflineStream 类
+│   └── index.ts                # 统一导出
+│
+└── app-modern/                  # 现代化应用入口
+    ├── recognizer.ts           # 高层流式识别封装（createStreamingRecognizer）
+    ├── recorder.ts             # 麦克风录音封装（MicrophoneRecorder）
+    └── index.ts                # 应用入口，组合所有模块
+```
+
+### 模块职责说明
+
+| 模块 | 职责 | 何时调用 |
+|------|------|---------|
+| **`sherpa-wasm-loader`** | 负责加载官方生成的 wasm 文件，配置 Module，提供 IndexedDB 缓存 | 应用启动时调用一次 `initWasmLoader()` |
+| **`sherpa-onnx-asr-ts`** | 提供完整的 TypeScript 类型和 API 封装（OnlineRecognizer、OnlineStream 等） | 创建识别器时使用 |
+| **`app-modern/recognizer`** | 高层封装，管理流式识别的生命周期（pushSamples、endpoint、reset） | 需要流式识别功能时调用 `createStreamingRecognizer()` |
+| **`app-modern/recorder`** | 封装浏览器录音 API，提供音频数据回调 | 需要录音功能时使用 `MicrophoneRecorder` |
+| **`app-modern/index`** | 应用入口，组合所有模块，处理 UI 交互 | 页面加载时执行 |
+
+### 调用流程图
+
+```
+页面加载 (index.html)
+  │
+  └─> app-modern/index.ts (main 函数)
+        │
+        ├─> createStreamingRecognizer()
+        │     │
+        │     └─> initWasmLoader()  ←─ sherpa-wasm-loader/loader.ts
+        │           │
+        │           ├─> patchFetchOnce()  ←─ 拦截 .wasm/.data 请求，做 IndexedDB 缓存
+        │           │
+        │           ├─> 创建 Module 对象，配置 locateFile / setStatus
+        │           │
+        │           ├─> loadScript('sherpa-onnx-wasm-main-asr.js')  ←─ 动态加载官方 loader
+        │           │
+        │           └─> 等待 Module.onRuntimeInitialized()
+        │                 │
+        │                 └─> 返回 { Module }
+        │
+        ├─> createOnlineRecognizer(Module, config?)  ←─ sherpa-onnx-asr-ts/online.ts
+        │     │
+        │     └─> 返回 OnlineRecognizer 实例
+        │
+        └─> new MicrophoneRecorder()  ←─ app-modern/recorder.ts
+              │
+              ├─> recorder.init()  ←─ 申请 getUserMedia，初始化 AudioContext
+              │
+              └─> recorder.start()  ←─ 开始录音，回调 onSamples
+                    │
+                    └─> streamingRecognizer.pushSamples(samples, sampleRate)
+                          │
+                          └─> 返回 { partialText, finalTexts }
+```
+
+### 关键 API 说明
+
+#### 1. `initWasmLoader(options?)`
+
+**职责：** 初始化 wasm loader，动态加载官方生成的 `sherpa-onnx-wasm-main-asr.js`
+
+**调用时机：** 应用启动时调用一次（内部会缓存 Promise，多次调用返回同一个实例）
+
+**参数：**
+```ts
+type WasmLoaderOptions = {
+  cacheWasm?: boolean      // 是否缓存到 IndexedDB，默认 true
+  cachePrefix?: string     // 缓存 key 前缀，默认 'sherpa-wasm:'
+  wasmScriptUrl?: string   // wasm loader 脚本路径，默认 'sherpa-onnx-wasm-main-asr.js'
+}
+```
+
+**返回：**
+```ts
+type WasmLoaderInitResult = {
+  Module: SherpaOnnxModule  // 初始化完成的 Module 对象
+}
+```
+
+**示例：**
+```ts
+import { initWasmLoader } from './sherpa-wasm-loader'
+
+const { Module } = await initWasmLoader({
+  cacheWasm: true,
+  cachePrefix: 'sherpa-v1:',
+})
+```
+
+#### 2. `createStreamingRecognizer(options?)`
+
+**职责：** 创建高层流式识别器，封装 `OnlineRecognizer` + `OnlineStream` 的生命周期管理
+
+**调用时机：** 需要开始识别时调用
+
+**参数：**
+```ts
+type StreamingRecognizerOptions = {
+  loader?: WasmLoaderOptions        // wasm loader 配置
+  config?: OnlineRecognizerConfig   // 识别器配置（可选，不传用默认）
+}
+```
+
+**返回：**
+```ts
+type StreamingRecognizer = {
+  recognizer: OnlineRecognizer
+  pushSamples(samples: Float32Array, sampleRate: number): StreamingRecognizerUpdate
+  reset(): void
+}
+```
+
+**示例：**
+```ts
+import { createStreamingRecognizer } from './app-modern/recognizer'
+
+const streaming = await createStreamingRecognizer({
+  loader: { cacheWasm: true },
+  config: { /* 可选的自定义配置 */ },
+})
+
+const update = streaming.pushSamples(samples, 16000)
+console.log(update.partialText)    // 当前增量结果
+console.log(update.finalTexts)     // 已确认的完整句子列表
+```
+
+### 渐进式替换步骤
+
+1. **保留旧逻辑，先做并行验证**
+   - 不改动现有 `index.html`、`app-asr.js`，先确认新模块能编译通过：
+     - `pnpm dev` / `pnpm build`
+   - 如果构建无误，说明 `sherpa-runtime.ts` 和 `app-modern/*` 代码结构是健康的。
+
+2. **切换入口为模块化版本（推荐在本地分支上尝试）**
+   - 修改 `index.html`，用 Vite 模块入口替换旧脚本：
+     ```html
+     <!-- 注释掉旧的全局脚本 -->
+     <!--
+     <script src="./src/sherpa-onnx-asr.js"></script>
+     <script src="./src/app-asr.js"></script>
+     <script src="./src/sherpa-onnx-wasm-main-asr.js"></script>
+     -->
+
+     <!-- 新的模块化入口，只保留 wasm loader 由 runtime 动态加载 -->
+     <script type="module" src="/src/app-modern/index.ts"></script>
+     ```
+   - 这一步之后，页面会使用 `sherpa-runtime` + `app-modern` 这套逻辑，按钮 / 文本框 / 录音播放区保持不变。
+
+3. **验证功能一致性**
+   - 打开页面，依次测试：
+     - **模型加载与状态展示**：`#status` 文本从 Loading → 空
+     - **开始录音 / 停止录音**：Start / Stop 按钮是否正常使能
+     - **实时识别结果**：文本区域是否实时滚动更新
+     - **清除按钮**：是否清空历史结果
+     - **录音片段列表**：停止录音后是否生成可播放的音频条目（含重命名 / 删除）
+
+4. **按需启用 / 调整 wasm 缓存**
+   - 如需控制 IndexedDB 缓存策略，可在创建识别器时传入 `loader` 配置：
+     ```ts
+     import { createStreamingRecognizer } from './app-modern/recognizer'
+
+     const streaming = await createStreamingRecognizer({
+       loader: {
+         cacheWasm: true,          // 是否缓存 .wasm / .data
+         cachePrefix: 'sherpa-v1:', // 区分不同模型版本
+         wasmScriptUrl: 'sherpa-onnx-wasm-main-asr.js',
+       },
+     })
+     ```
+   - `app-modern/index.ts` 默认开启缓存且使用通用前缀，可后续按业务需要抽取成自定义入口。
+
+5. **最终裁剪旧代码（可选）**
+   - 当确认模块化版本稳定后，可以：
+     - 删除 `app-asr.js` 及相关 README 段落
+     - 仅保留：
+       - `sherpa-onnx-wasm-main-asr.{js,wasm,data}`（官方生成，不改动）
+       - `sherpa-runtime.ts` + `sherpa-onnx-asr-ts/*` + `app-modern/*`
+
+这样，你可以在不动官方生成 wasm 产物的前提下，逐步把业务逻辑全部迁移到现代化、类型完备的模块化入口上。
+
 ### 使用方法
 
 在 TypeScript 项目中使用：
