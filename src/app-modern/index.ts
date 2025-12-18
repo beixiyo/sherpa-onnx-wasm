@@ -89,7 +89,11 @@ async function main() {
     statusElement.textContent = 'Loading (modern runtime)...'
   }
 
-  streamingRecognizer = await createStreamingRecognizer()
+  streamingRecognizer = await createStreamingRecognizer({
+    loader: {
+      wasmScriptUrl: '/sherpa-onnx-wasm-main-asr.js'
+    }
+  })
   recognizerReady = true
 
   await recorder.init()

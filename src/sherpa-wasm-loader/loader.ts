@@ -21,12 +21,11 @@
  * ```
  */
 
-import localforage from 'localforage'
 import type { SherpaOnnxModule } from '../sherpa-onnx-asr-ts'
 import type { WasmLoaderInitResult, WasmLoaderOptions } from './types'
+import { patchNetwork } from './cache'
 
 let initPromise: Promise<WasmLoaderInitResult> | null = null
-let fetchPatched = false
 
 /**
  * 初始化 sherpa-onnx wasm loader
@@ -58,24 +57,18 @@ async function doInit(
     throw new Error('initWasmLoader 仅支持在浏览器环境中调用')
   }
 
-  patchFetchOnce(options)
+  patchNetwork(options)
 
   const Module: SherpaOnnxModule = {} as SherpaOnnxModule
 
-  // 配置 localforage
-  localforage.config({
-    name: 'sherpa-onnx-cache',
-    storeName: 'wasm-files',
-  })
-
   // 配置 locateFile（主要用于确定 wasm/data 的 URL）
-  ;(Module as any).locateFile = (path: string, scriptDirectory = '') => {
-    // 这里只做路径拼接，实际的缓存逻辑在 fetchPatch 中拦截
+  Module.locateFile = (path: string, scriptDirectory = '') => {
+    // 这里只做路径拼接，实际的缓存逻辑在 patchNetwork 中拦截
     return scriptDirectory + path
   }
 
   // 复用原来 app-asr.js 里的 setStatus 逻辑，做成更安全的实现
-  ;(Module as any).setStatus = (status: string) => {
+  Module.setStatus = (status: string) => {
     if (typeof document === 'undefined') return
 
     const statusElement = document.getElementById('status')
@@ -99,10 +92,10 @@ async function doInit(
 
     const tabContents = document.querySelectorAll('.tab-content')
     if (text === '') {
-      ;(statusElement as HTMLElement).style.display = 'none'
+      (statusElement as HTMLElement).style.display = 'none'
       tabContents.forEach((el) => el.classList.remove('loading'))
     } else {
-      ;(statusElement as HTMLElement).style.display = 'block'
+      (statusElement as HTMLElement).style.display = 'block'
       tabContents.forEach((el) => el.classList.add('loading'))
     }
   }
@@ -111,14 +104,13 @@ async function doInit(
   window.Module = Module
 
   // 动态加载 wasm loader（等价于 <script src="sherpa-onnx-wasm-main-asr.js">）
-  const scriptUrl =
-    options && options.wasmScriptUrl
-      ? options.wasmScriptUrl
-      : 'sherpa-onnx-wasm-main-asr.js'
+  const scriptUrl = options && options.wasmScriptUrl
+    ? options.wasmScriptUrl
+    : 'sherpa-onnx-wasm-main-asr.js'
   await loadScript(scriptUrl)
 
   await new Promise<void>((resolve) => {
-    ;(Module as any).onRuntimeInitialized = () => {
+    Module.onRuntimeInitialized = () => {
       resolve()
     }
   })
@@ -128,99 +120,6 @@ async function doInit(
   }
 }
 
-/**
- * 只在第一次调用时对 window.fetch 做一次补丁，
- * 对 .wasm / .data 请求做 IndexedDB 缓存，其他请求透明转发。
- */
-function patchFetchOnce(options?: WasmLoaderOptions) {
-  if (fetchPatched || typeof window === 'undefined' || !window.fetch) {
-    return
-  }
-
-  const enableCache = options?.cacheWasm ?? true
-  const cachePrefix = options?.cachePrefix ?? 'sherpa-wasm:'
-
-  const originalFetch = window.fetch.bind(window)
-
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url =
-      typeof input === 'string'
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url
-
-    if (!url.endsWith('.wasm') && !url.endsWith('.data')) {
-      return originalFetch(input, init)
-    }
-
-    if (!enableCache) {
-      return originalFetch(input, init)
-    }
-
-    const key = `${cachePrefix}${url}`
-
-    try {
-      const cached = await localforage.getItem<ArrayBuffer>(key)
-      if (cached) {
-        // 为 WASM 文件设置正确的 MIME 类型
-        const mimeType = url.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream'
-        const blob = new Blob([cached], { type: mimeType })
-        return new Response(blob, {
-          status: 200,
-          headers: {
-            'Content-Type': mimeType,
-          },
-        })
-      }
-    } catch {
-      // 缓存读取失败时退回正常网络请求
-    }
-
-    const resp = await originalFetch(input, init)
-
-    // 确保响应具有正确的 MIME 类型（如果服务器没有设置）
-    let finalResp = resp
-    if (url.endsWith('.wasm')) {
-      const contentType = resp.headers.get('Content-Type')
-      if (!contentType || !contentType.includes('application/wasm')) {
-        // 如果响应没有正确的 MIME 类型，创建一个新的响应
-        // 先克隆用于缓存，然后读取原始响应
-        const respClone = resp.clone()
-        const buf = await resp.arrayBuffer()
-        finalResp = new Response(buf, {
-          status: resp.status,
-          statusText: resp.statusText,
-          headers: {
-            ...Object.fromEntries(resp.headers.entries()),
-            'Content-Type': 'application/wasm',
-          },
-        })
-
-        // 使用克隆的响应进行缓存
-        try {
-          const cacheBuf = await respClone.arrayBuffer()
-          await localforage.setItem(key, cacheBuf)
-        } catch {
-          // 写缓存失败不影响主流程
-        }
-        return finalResp
-      }
-    }
-
-    // 如果 MIME 类型正确，正常进行缓存
-    try {
-      const buf = await resp.clone().arrayBuffer()
-      await localforage.setItem(key, buf)
-    } catch {
-      // 写缓存失败不影响主流程
-    }
-
-    return finalResp
-  }
-
-  fetchPatched = true
-}
 
 function loadScript(src: string) {
   return new Promise<void>((resolve, reject) => {
