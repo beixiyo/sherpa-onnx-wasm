@@ -91,7 +91,11 @@ export async function createStreamingRecognizer(
     let text = result.text
 
     // paraformer 需要尾部填充一次再取结果
-    if (recognizer.config.modelConfig.paraformer?.encoder) {
+    // 与官方代码保持一致：检查 encoder != ''
+    if (
+      recognizer.config.modelConfig.paraformer &&
+      recognizer.config.modelConfig.paraformer.encoder !== ''
+    ) {
       const tailPaddings = new Float32Array(sampleRate)
       currentStream.acceptWaveform(sampleRate, tailPaddings)
       while (recognizer.isReady(currentStream)) {

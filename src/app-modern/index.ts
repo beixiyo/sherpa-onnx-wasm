@@ -1,21 +1,11 @@
 import { createStreamingRecognizer } from './recognizer'
 import { MicrophoneRecorder } from './recorder'
 
-const startBtn = document.getElementById('startBtn') as
-  | HTMLButtonElement
-  | null
-const stopBtn = document.getElementById('stopBtn') as
-  | HTMLButtonElement
-  | null
-const clearBtn = document.getElementById('clearBtn') as
-  | HTMLButtonElement
-  | null
-const soundClips = document.getElementById('sound-clips') as
-  | HTMLElement
-  | null
-const resultsTextarea = document.getElementById('results') as
-  | HTMLTextAreaElement
-  | null
+const startBtn = document.getElementById('startBtn') as HTMLButtonElement
+const stopBtn = document.getElementById('stopBtn') as HTMLButtonElement
+const clearBtn = document.getElementById('clearBtn') as HTMLButtonElement
+const soundClips = document.getElementById('sound-clips') as HTMLElement
+const resultsTextarea = document.getElementById('results') as HTMLTextAreaElement
 
 if (!startBtn || !stopBtn || !clearBtn || !soundClips || !resultsTextarea) {
   throw new Error('缺少必要的 DOM 元素，无法初始化 app-modern')
@@ -71,6 +61,8 @@ const recorder = new MicrophoneRecorder({
       } else if (s <= -1) {
         s = -1
       }
+      // 与官方代码保持一致：虽然修改后 samples 未被使用，但保持行为一致
+      samples[i] = s
       buf[i] = s * 32767
     }
 
@@ -110,7 +102,7 @@ async function main() {
 
   clearBtn.onclick = () => {
     resultList = []
-    lastResult = ''
+    // 注意：官方代码不清空 lastResult，保持行为一致
     resultsTextarea.value = getDisplayResult()
     resultsTextarea.scrollTop = resultsTextarea.scrollHeight
   }

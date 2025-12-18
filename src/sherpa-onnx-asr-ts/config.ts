@@ -17,6 +17,7 @@ import type {
 
 type PtrConfig = {
   ptr: number
+  len: number
   buffer?: number
   [key: string]: unknown
 }
