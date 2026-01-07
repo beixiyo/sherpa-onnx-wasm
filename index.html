@@ -42,6 +42,29 @@
       </div>
     </div>
 
+    <!-- 文件识别区域 -->
+    <div id="fileAudioContent" class="tab-content loading" style="margin-top: 2rem; padding-top: 2rem; border-top: 2px solid #e9ecef;">
+      <div style="display: flex; flex-direction: column; gap: 1rem;">
+        <div style="font-size: 1.2rem; font-weight: bold; padding: 0.5rem 1rem; background-color: #e7f3ff; border-radius: 8px; color: #0066cc;">音频文件识别</div>
+
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+          <div style="display: flex; gap: 1rem; align-items: center;">
+            <input type="file" id="fileInput" accept="audio/*" disabled style="flex: 1; padding: 0.5rem; font-size: 1rem; border: 1px solid #ced4da; border-radius: 8px;">
+            <button id="recognizeBtn" disabled style="padding: 0.5rem 1.5rem; font-size: 1rem; background-color: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer;">识别</button>
+          </div>
+
+          <div id="fileStatus" style="padding: 0.5rem 1rem; background-color: #f8f9fa; border-radius: 8px; color: #6c757d; font-size: 0.9rem;">
+            正在加载识别器...
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <div style="font-size: 1rem; font-weight: bold; padding: 0.5rem 1rem; background-color: #f8f9fa; border-radius: 8px; color: #6c757d;">识别结果</div>
+            <textarea id="fileResult" rows="8" placeholder="识别结果将显示在这里..." readonly style="flex: 1; padding: 0.75rem; font-size: 1rem; border: 1px solid #ced4da; border-radius: 8px; resize: none; background-color: #f8f9fa;"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <section flex="1" overflow="auto" id="sound-clips">
     </section>
 
@@ -83,4 +106,6 @@
 
   <!-- 新的模块化入口，只保留 wasm loader 由 runtime 动态加载 -->
   <script type="module" src="./src/app-modern/index.ts"></script>
+  <!-- 文件识别功能 -->
+  <script type="module" src="./src/app-modern/file-recognition.ts"></script>
 </body>
